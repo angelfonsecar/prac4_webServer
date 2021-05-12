@@ -3,13 +3,18 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Date;
 import java.util.StringTokenizer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.logging.Handler;
+
 
 public class ServidorWeb
 {
     public static final int PUERTO=3500;
     ServerSocket ss;
+    private final ExecutorService pool;
 
-    class Manejador extends Thread
+    class Manejador implements Runnable
     {
         protected Socket socket;
         protected PrintWriter pw;
@@ -23,11 +28,13 @@ public class ServidorWeb
 
         public void run() {
             try{
+
                 br=new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 bos=new BufferedOutputStream(socket.getOutputStream());
                 pw=new PrintWriter(new OutputStreamWriter(bos));
                 String line=br.readLine();
-                //System.out.println(line);
+
+
                 if(line==null)
                 {
                     pw.print("<html><head><title>Servidor WEB");
@@ -43,10 +50,11 @@ public class ServidorWeb
 
                 if(line.toUpperCase().startsWith("GET")){
                     System.out.println("Atendiendo petición GET");
-                    handleGET(line);
+                    handleGET(line, false);
                 }
                 else if(line.toUpperCase().startsWith("HEAD")){
                     System.out.println("Atendiendo petición HEAD");
+                    handleGET(line, true);
                 }
                 else if(line.toUpperCase().startsWith("POST")){
                     System.out.println("Atendiendo petición POST");
@@ -76,12 +84,9 @@ public class ServidorWeb
         public void getArch(String line) {
             int i;
             int f;
-            if(line.toUpperCase().startsWith("GET"))
-            {
-                i=line.indexOf("/");
-                f=line.indexOf(" ",i);
-                FileName=line.substring(i+1,f);
-            }
+            i=line.indexOf("/");
+            f=line.indexOf(" ",i);
+            FileName=line.substring(i+1,f);
         }
         public void SendA(String fileName,Socket sc)
         {
@@ -109,12 +114,45 @@ public class ServidorWeb
             }
 
         }
-        public void SendA(String arg)
-        {
+
+        public void sendHeader(BufferedInputStream bis) throws IOException {
+            int tam_archivo=bis.available();
+
+            String sb = "";
+            sb = sb+"HTTP/1.0 200 ok\n";
+            sb = sb +"Server: Axel Server/1.0 \n";
+            sb = sb +"Date: " + new Date()+" \n";
+            sb = sb +"Content-Type: ";
+
+            String ext = FileName.substring(FileName.lastIndexOf('.')+1);   //obtenemos la extensión del recurso solicitado
+            switch (ext){
+                case "html" -> sb = sb +"text/html";
+                case "jpg" -> sb+="image/jpeg";
+                case "png" -> sb+="image/png";
+                case "doc" -> sb+="application/msword";
+                case "pdf" -> sb+="application/pdf";
+                case "xls" -> sb+="application/vnd.ms-excel";
+                case "ppt" -> sb+="application/vnd.ms-powerpoint";
+                //default -> sb = sb +"text/html";
+            }sb+=" \n";
+
+            sb = sb +"Content-Length: "+tam_archivo+" \n";
+            sb = sb +"\n";
+            System.out.println("\nEncabezado respuesta:\n*****************\n" + sb + "*****************");
+            bos.write(sb.getBytes());
+            bos.flush();
+
+            //out.println("HTTP/1.0 200 ok");
+            //out.println("Server: Axel Server/1.0");
+            //out.println("Date: " + new Date());
+            //out.println("Content-Type: text/html");
+            //out.println("Content-Length: " + mifichero.length());
+            //out.println("\n");
+        }
+
+        public void SendA(String arg, boolean isHead) {
             try{
-                int b_leidos=0;
-                BufferedInputStream bis2=new BufferedInputStream(new FileInputStream(arg));
-                byte[] buf=new byte[1024];
+                BufferedInputStream bis2 = new BufferedInputStream(new FileInputStream(FileName));
                 int tam_bloque=0;
                 if(bis2.available()>=1024)
                 {
@@ -125,32 +163,16 @@ public class ServidorWeb
                     bis2.available();
                 }
 
-                int tam_archivo=bis2.available();
-                /***********************************************/
-                String sb = "";
-                sb = sb+"HTTP/1.0 200 ok\n";
-                sb = sb +"Server: Axel Server/1.0 \n";
-                sb = sb +"Date: " + new Date()+" \n";
-                sb = sb +"Content-Type: text/html \n";
-                sb = sb +"Content-Length: "+tam_archivo+" \n";
-                sb = sb +"\n";
-                bos.write(sb.getBytes());
-                bos.flush();
+                sendHeader(bis2);
 
-                //out.println("HTTP/1.0 200 ok");
-                //out.println("Server: Axel Server/1.0");
-                //out.println("Date: " + new Date());
-                //out.println("Content-Type: text/html");
-                //out.println("Content-Length: " + mifichero.length());
-                //out.println("\n");
+                if(!isHead){
+                    byte[] buf=new byte[1024];
+                    int b_leidos;
+                    while((b_leidos=bis2.read(buf,0,buf.length))!=-1)
+                        bos.write(buf,0,b_leidos);
 
-                /***********************************************/
-
-                while((b_leidos=bis2.read(buf,0,buf.length))!=-1) {
-                    bos.write(buf,0,b_leidos);
-
+                    bos.flush();
                 }
-                bos.flush();
                 bis2.close();
 
             }
@@ -160,19 +182,15 @@ public class ServidorWeb
 
         }
 
-        public void handleGET(String line){
+        public void handleGET(String line, boolean isHead){
             if(!line.contains("?"))
             {
                 getArch(line);
-                if(FileName.compareTo("")==0) {
-                    SendA("Formulario.html");
-                }
-                else
-                {
-                    SendA(FileName);
-                }
-                System.out.println(FileName);
+                if(FileName.compareTo("")==0)
+                    FileName = "Formulario.html";
 
+                System.out.println(FileName);
+                SendA(FileName, isHead);
 
             }else{
                 StringTokenizer tokens=new StringTokenizer(line,"?");
@@ -194,21 +212,16 @@ public class ServidorWeb
                 pw.flush();
             }
         }
+
         public void handlePOST(String line) throws IOException {
-            //while(br.read()=!)
             String info="";
 
-            //int aux;
-            /*aux=line.indexOf("\n\r");
-            System.out.println(info.substring(aux+1));*/
-
-            //int i=0;
+            //handleGET("GET /school.png HTTP/1.1", false);     //si enviamos una respuesta antes de leer, sí nos muestra la info
             while ((line = br.readLine()) != null) {
                 info=line;
                 System.out.println(info);
             }
             System.out.println("info = " + info);
-
         }
     }
     public ServidorWeb() throws Exception
@@ -217,11 +230,19 @@ public class ServidorWeb
         this.ss=new ServerSocket(PUERTO);
         System.out.println("Servidor iniciado:---OK");
         System.out.println("Esperando por Cliente....");
+        pool = Executors.newFixedThreadPool(2);
         for(;;)
         {
-            Socket accept=ss.accept();
-            new Manejador(accept).start();
+            Socket accept = null;
+            try {
+                accept=ss.accept();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            pool.execute(new Manejador(accept));
+
         }
+
     }
 
 

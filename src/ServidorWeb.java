@@ -1,4 +1,3 @@
-import javax.swing.*;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -18,8 +17,6 @@ public class ServidorWeb
     {
         protected Socket socket;
         protected PrintWriter pw;
-        protected BufferedOutputStream bos;
-        protected BufferedReader br;
         protected String FileName;
 
 
@@ -29,11 +26,11 @@ public class ServidorWeb
 
         public void run() {
             try{
+                DataInputStream dis=new DataInputStream(socket.getInputStream());
+                DataOutputStream dos=new DataOutputStream(socket.getOutputStream());
+                pw=new PrintWriter(new OutputStreamWriter(dos));
 
-                br=new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                bos=new BufferedOutputStream(socket.getOutputStream());
-                pw=new PrintWriter(new OutputStreamWriter(bos));
-                String line=br.readLine();
+                String line=dis.readLine();
 
 
                 if(line==null)
@@ -51,25 +48,24 @@ public class ServidorWeb
 
                 if(line.toUpperCase().startsWith("GET")){
                     System.out.println("Atendiendo petición GET");
-                    handleGET(line, false);
+                    handleGET(line, false,dos);
                 }
                 else if(line.toUpperCase().startsWith("HEAD")){
                     System.out.println("Atendiendo petición HEAD");
-                    handleGET(line, true);
+                    handleGET(line, true,dos);
                 }
                 else if(line.toUpperCase().startsWith("POST")){
                     System.out.println("Atendiendo petición POST");
-                    handlePOST(line);
+                    handlePOST(dis,dos,line);
                 }
                 else if(line.toUpperCase().startsWith("PUT")){
                     System.out.println("Atendiendo petición PUT");
-                    handlePUT(line);
+                    handlePUT(line,dos);
                 }else{
-                    pw.println("HTTP/1.0 501 Esa no se la vengo manejando, jefe");
+                    dos.writeUTF("HTTP/1.0 501 Esa no se la vengo manejando, jefe");
                     System.out.println("HTTP/1.0 501 Esa no se la vengo manejando, jefe");
                 }
-                pw.flush();
-                bos.flush();
+                dos.flush();
             }
             catch(Exception e)
             {
@@ -92,11 +88,11 @@ public class ServidorWeb
             FileName=line.substring(i+1,f);
         }
 
-        public void sendHeader(BufferedInputStream bis) throws IOException {
-            int tam_archivo=bis.available();
+        public void sendHeader(DataInputStream dis,DataOutputStream dos) throws IOException {
+            int tam_archivo=dis.available();
 
             String sb = "";
-            sb = sb+"HTTP/1.0 200 ok\n";
+            sb = sb+"HTTP/1.1 200 ok\n";
             sb = sb +"Server: FRATE Server/1.1 \n";
             sb = sb +"Date: " + new Date()+" \n";
             sb = sb +"Content-Type: ";
@@ -116,34 +112,34 @@ public class ServidorWeb
             sb = sb +"Content-Length: "+tam_archivo+" \n";
             sb = sb +"\n";
             System.out.println("\nEncabezado respuesta:\n*****************\n" + sb + "*****************");
-            bos.write(sb.getBytes());
-            bos.flush();
+            dos.write(sb.getBytes());
+            dos.flush();
         }
 
-        public void SendA(String arg, boolean isHead) {
+        public void SendA(String arg, boolean isHead,DataOutputStream dos) {
             try{
-                BufferedInputStream bis2 = new BufferedInputStream(new FileInputStream(FileName));
+                DataInputStream dis2 = new DataInputStream(new FileInputStream(FileName));
                 int tam_bloque=0;
-                if(bis2.available()>=1024)
+                if(dis2.available()>=1024)
                 {
                     tam_bloque=1024;
                 }
                 else
                 {
-                    bis2.available();
+                    dis2.available();
                 }
 
-                sendHeader(bis2);
+                sendHeader(dis2,dos);
 
                 if(!isHead){
                     byte[] buf=new byte[1024];
                     int b_leidos;
-                    while((b_leidos=bis2.read(buf,0,buf.length))!=-1)
-                        bos.write(buf,0,b_leidos);
+                    while((b_leidos=dis2.read(buf,0,buf.length))!=-1)
+                        dos.write(buf,0,b_leidos);
 
-                    bos.flush();
+                    dos.flush();
                 }
-                bis2.close();
+                dis2.close();
 
             }
             catch(Exception e) {
@@ -152,7 +148,7 @@ public class ServidorWeb
 
         }
 
-        public void handleGET(String line, boolean isHead){
+        public void handleGET(String line, boolean isHead, DataOutputStream dos) throws IOException{
             if(!line.contains("?"))
             {
                 getArch(line);
@@ -160,14 +156,12 @@ public class ServidorWeb
                     FileName = "Formulario.html";
 
                 System.out.println(FileName);
-                SendA(FileName, isHead);
+                SendA(FileName, isHead,dos);
 
             }else{
                 StringTokenizer tokens=new StringTokenizer(line,"?");
                 String req_a=tokens.nextToken();
                 String req=tokens.nextToken();
-                System.out.println("Token1: "+req_a+"\r\n\r\n");
-                System.out.println("Token2: "+req+"\r\n\r\n");
                 pw.println("HTTP/1.1 200 Okay");
                 pw.flush();
                 pw.println();
@@ -183,18 +177,49 @@ public class ServidorWeb
             }
         }
 
-        public void handlePOST(String line) throws IOException {
-            String info="";
+        public void handlePOST(DataInputStream dis,DataOutputStream dos, String line) throws IOException {
+            getArch(line);
+            byte[] tmp= new byte[1500];
+            int n= dis.read(tmp);
+            String datos= new String(tmp,0,n);
 
-            //handleGET("GET /Formulario.html HTTP/1.1",false); //si enviamos una respuesta antes de leer, sí nos muestra la info
-            while ((line = br.readLine()) != null) {
-                    info=line;
-            }
-            System.out.println("info = " + info);
+            int index=datos.indexOf("\n\r");
+            String info=datos.substring(index);
+            handleGET("GET /?"+info+" HTTP/1.1",false,dos);
+            sendHeaderPOST(dis,dos,info);
 
         }
 
-        public void handlePUT(String line) throws IOException {
+        public void sendHeaderPOST(DataInputStream dis,DataOutputStream dos, String datos) throws IOException {
+            int tam_archivo=dis.available();
+
+            String sb = "";
+            sb = sb+"HTTP/1.1 200 ok\n";
+            sb = sb +"Server: FRATE Server/1.1 \n";
+            sb = sb +"Date: " + new Date()+" \n";
+            sb = sb +"Content-Type: ";
+
+            String ext = FileName.substring(FileName.lastIndexOf('.')+1);   //obtenemos la extensión del recurso solicitado
+            switch (ext){
+                case "html" -> sb = sb +"text/html";
+                case "jpg" -> sb+="image/jpeg";
+                case "png" -> sb+="image/png";
+                case "doc" -> sb+="application/msword";
+                case "pdf" -> sb+="application/pdf";
+                case "xls" -> sb+="application/vnd.ms-excel";
+                case "ppt" -> sb+="application/vnd.ms-powerpoint";
+                //default -> sb = sb +"text/html";
+            }sb+=" \n";
+
+            sb = sb +"Content-Length: "+tam_archivo+" \n";
+            sb +="Request: "+datos+"\n";
+            sb = sb +"\n";
+            System.out.println("\nEncabezado respuesta:\n*****************\n" + sb + "*****************");
+            dos.write(sb.getBytes());
+            dos.flush();
+        }
+
+        public void handlePUT(String line, DataOutputStream dos) throws IOException {
             File f = new File("");
             int indicador=1;
             dirActual = f.getAbsolutePath()+"\\";
@@ -207,12 +232,12 @@ public class ServidorWeb
                         indicador = 0;
             }
 
-            BufferedOutputStream bos=new BufferedOutputStream(new FileOutputStream(dirActual+FileName));
+            DataOutputStream dos2=new DataOutputStream(new FileOutputStream(dirActual+FileName));
             System.out.println(FileName);
-            sendHeaderPUT(indicador);
+            sendHeaderPUT(indicador,dos);
         }
 
-        public void sendHeaderPUT(int indicador) throws IOException {
+        public void sendHeaderPUT(int indicador,DataOutputStream dos) throws IOException {
 
             String sb = "";
 
@@ -241,8 +266,8 @@ public class ServidorWeb
             sb = sb +"Content-Location: "+ dirActual+FileName+ " \n";
             sb = sb +"\n";
             System.out.println("\nEncabezado respuesta:\n*****************\n" + sb + "*****************");
-            bos.write(sb.getBytes());
-            bos.flush();
+            dos.write(sb.getBytes());
+            dos.flush();
         }
 
 

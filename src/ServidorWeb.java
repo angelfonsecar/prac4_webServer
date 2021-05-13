@@ -1,3 +1,4 @@
+import javax.swing.*;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -5,14 +6,13 @@ import java.util.Date;
 import java.util.StringTokenizer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.logging.Handler;
-
 
 public class ServidorWeb
 {
     public static final int PUERTO=3500;
     ServerSocket ss;
     private final ExecutorService pool;
+    private String dirActual;
 
     class Manejador implements Runnable
     {
@@ -21,6 +21,7 @@ public class ServidorWeb
         protected BufferedOutputStream bos;
         protected BufferedReader br;
         protected String FileName;
+
 
         public Manejador(Socket _socket) {
             this.socket=_socket;
@@ -62,9 +63,11 @@ public class ServidorWeb
                 }
                 else if(line.toUpperCase().startsWith("PUT")){
                     System.out.println("Atendiendo petición PUT");
-                }else
+                    handlePUT(line);
+                }else{
                     pw.println("HTTP/1.0 501 Esa no se la vengo manejando, jefe");
-
+                    System.out.println("HTTP/1.0 501 Esa no se la vengo manejando, jefe");
+                }
                 pw.flush();
                 bos.flush();
             }
@@ -88,39 +91,13 @@ public class ServidorWeb
             f=line.indexOf(" ",i);
             FileName=line.substring(i+1,f);
         }
-        public void SendA(String fileName,Socket sc)
-        {
-            //System.out.println(fileName);
-            int fSize = 0;
-            byte[] buffer = new byte[4096];
-            try{
-                DataOutputStream out =new DataOutputStream(sc.getOutputStream());
-
-                //sendHeader();
-                FileInputStream f = new FileInputStream(fileName);
-                int x = 0;
-                while((x = f.read(buffer))>0)
-                {
-                    //		System.out.println(x);
-                    out.write(buffer,0,x);
-                }
-                out.flush();
-                f.close();
-            }catch(FileNotFoundException e){
-                //msg.printErr("Transaction::sendResponse():1", "El archivo no existe: " + fileName);
-            }catch(IOException e){
-                //			System.out.println(e.getMessage());
-                //msg.printErr("Transaction::sendResponse():2", "Error en la lectura del archivo: " + fileName);
-            }
-
-        }
 
         public void sendHeader(BufferedInputStream bis) throws IOException {
             int tam_archivo=bis.available();
 
             String sb = "";
             sb = sb+"HTTP/1.0 200 ok\n";
-            sb = sb +"Server: Axel Server/1.0 \n";
+            sb = sb +"Server: FRATE Server/1.1 \n";
             sb = sb +"Date: " + new Date()+" \n";
             sb = sb +"Content-Type: ";
 
@@ -141,13 +118,6 @@ public class ServidorWeb
             System.out.println("\nEncabezado respuesta:\n*****************\n" + sb + "*****************");
             bos.write(sb.getBytes());
             bos.flush();
-
-            //out.println("HTTP/1.0 200 ok");
-            //out.println("Server: Axel Server/1.0");
-            //out.println("Date: " + new Date());
-            //out.println("Content-Type: text/html");
-            //out.println("Content-Length: " + mifichero.length());
-            //out.println("\n");
         }
 
         public void SendA(String arg, boolean isHead) {
@@ -198,7 +168,7 @@ public class ServidorWeb
                 String req=tokens.nextToken();
                 System.out.println("Token1: "+req_a+"\r\n\r\n");
                 System.out.println("Token2: "+req+"\r\n\r\n");
-                pw.println("HTTP/1.0 200 Okay");
+                pw.println("HTTP/1.1 200 Okay");
                 pw.flush();
                 pw.println();
                 pw.flush();
@@ -216,13 +186,66 @@ public class ServidorWeb
         public void handlePOST(String line) throws IOException {
             String info="";
 
-            //handleGET("GET /school.png HTTP/1.1", false);     //si enviamos una respuesta antes de leer, sí nos muestra la info
+            //handleGET("GET /Formulario.html HTTP/1.1",false); //si enviamos una respuesta antes de leer, sí nos muestra la info
             while ((line = br.readLine()) != null) {
-                info=line;
-                System.out.println(info);
+                    info=line;
             }
             System.out.println("info = " + info);
+
         }
+
+        public void handlePUT(String line) throws IOException {
+            File f = new File("");
+            int indicador=1;
+            dirActual = f.getAbsolutePath()+"\\";
+            File f1=new File(dirActual);
+            File []listaDeArchivos = f1.listFiles();
+            getArch(line);
+
+            for (File archivo:listaDeArchivos) {
+                if (archivo.getName().equals(FileName))
+                        indicador = 0;
+            }
+
+            BufferedOutputStream bos=new BufferedOutputStream(new FileOutputStream(dirActual+FileName));
+            System.out.println(FileName);
+            sendHeaderPUT(indicador);
+        }
+
+        public void sendHeaderPUT(int indicador) throws IOException {
+
+            String sb = "";
+
+            if(indicador==1) {
+                sb += "HTTP/1.1 201 Created\n";
+            }
+            else{
+                sb+="HTTP/1.1 204 No Content\n";}
+
+            sb = sb +"Server: FRATE Server/1.1 \n";
+            sb = sb +"Date: " + new Date()+" \n";
+            sb = sb +"Content-Type: ";
+
+            String ext = FileName.substring(FileName.lastIndexOf('.')+1);   //obtenemos la extensión del recurso solicitado
+            switch (ext){
+                case "html" -> sb+="text/html";
+                case "jpg" -> sb+="image/jpeg";
+                case "png" -> sb+="image/png";
+                case "doc" -> sb+="application/msword";
+                case "pdf" -> sb+="application/pdf";
+                case "xls" -> sb+="application/vnd.ms-excel";
+                case "ppt" -> sb+="application/vnd.ms-powerpoint";
+                //default -> sb = sb +"text/html";
+            }sb+=" \n";
+
+            sb = sb +"Content-Location: "+ dirActual+FileName+ " \n";
+            sb = sb +"\n";
+            System.out.println("\nEncabezado respuesta:\n*****************\n" + sb + "*****************");
+            bos.write(sb.getBytes());
+            bos.flush();
+        }
+
+
     }
     public ServidorWeb() throws Exception
     {
@@ -244,8 +267,6 @@ public class ServidorWeb
         }
 
     }
-
-
 
     public static void main(String[] args) throws Exception{
         ServidorWeb sWEB=new ServidorWeb();

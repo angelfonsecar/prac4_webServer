@@ -62,7 +62,7 @@ public class ServidorWeb
                     System.out.println("Atendiendo petición PUT");
                     handlePUT(line,dos);
                 }else{
-                    dos.writeUTF("HTTP/1.0 501 Esa no se la vengo manejando, jefe");
+                    pw.println("HTTP/1.0 501 Esa no se la vengo manejando, jefe");
                     System.out.println("HTTP/1.0 501 Esa no se la vengo manejando, jefe");
                 }
                 dos.flush();
@@ -182,11 +182,12 @@ public class ServidorWeb
             byte[] tmp= new byte[1500];
             int n= dis.read(tmp);
             String datos= new String(tmp,0,n);
-
             int index=datos.indexOf("\n\r");
             String info=datos.substring(index);
+
             handleGET("GET /?"+info+" HTTP/1.1",false,dos);
-            sendHeaderPOST(dis,dos,info);
+
+            //sendHeaderPOST(dis,dos,info);
 
         }
 
